@@ -29,6 +29,8 @@
 #define __LIBEMQTT_H__
 
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 #include "mqtt_typedef.h"
 
 #ifndef MQTT_CONF_USERNAME_LENGTH

@@ -18,7 +18,7 @@
 #define MQTT_CLIENT_ID         "135646308390000"
 #define MQTT_CLIENT_USER_NAME  NULL
 #define MQTT_CLIENT_USER_PWD   NULL
-#define MQTT_CLIENT_ALIVE_TIME 30
+#define MQTT_CLIENT_ALIVE_TIME 60
 #define MQTT_CLIENT_SUB_TOPIC  "135646308390000"
 
 #define MQTT_SERVER_ADDRESS    "www.lianyun.tv"
@@ -54,6 +54,12 @@ int MqttSocketConnect(char* server_addr, int port)
     sAddr.sin_family = SL_AF_INET;
     sAddr.sin_port = sl_Htons((unsigned short)port);
     sAddr.sin_addr.s_addr = sl_Htonl((unsigned int)uiIP);
+
+    if (MqttSocketId)
+    {
+        sl_Close(MqttSocketId);
+        MqttSocketId = 0;
+    }
 
 	MqttSocketId = sl_Socket(SL_AF_INET,SL_SOCK_STREAM, 0);
 	if( MqttSocketId < 0 )
@@ -111,13 +117,15 @@ static cc_hndl MqttAliveTimerHndl = NULL;
 
 static void MqttAliveTimerCallBack(void* param)
 {
-    struct u64_time sIntervalTimer;
-    sIntervalTimer.secs = MQTT_CLIENT_ALIVE_TIME;
-    sIntervalTimer.nsec = 0;
-    cc_timer_start(MqttAliveTimerHndl, &sIntervalTimer, OPT_TIMER_PERIODIC);
-
-    mqtt_ping(&MqttBroker);
-    MqttPingResp = 0;
+    if (MqttPingResp)
+    {
+        struct u64_time sIntervalTimer;
+        sIntervalTimer.secs = MQTT_CLIENT_ALIVE_TIME;
+        sIntervalTimer.nsec = 0;
+        cc_timer_start(MqttAliveTimerHndl, &sIntervalTimer, OPT_TIMER_PERIODIC);
+        mqtt_ping(&MqttBroker);
+        MqttPingResp = 0;
+    }
 }
 
 static void MqttAliveTimerStart()
@@ -303,26 +311,34 @@ static S32 MqttSocketRun(const U8* packet_buffer, S16 packet_length)
 
 void MqttClientStart(void *parm)
 {
-	mqtt_init(&MqttBroker, MQTT_CLIENT_ID);
-	mqtt_init_auth(&MqttBroker, MQTT_CLIENT_USER_NAME, MQTT_CLIENT_USER_PWD);
+    while (1)
+    {
+        mqtt_init(&MqttBroker, MQTT_CLIENT_ID);
+        mqtt_init_auth(&MqttBroker, MQTT_CLIENT_USER_NAME, MQTT_CLIENT_USER_PWD);
 
-	mqtt_set_alive(&MqttBroker, MQTT_CLIENT_ALIVE_TIME);
-	MqttSocketConnect(MQTT_SERVER_ADDRESS, MQTT_SERVER_PORTNUM);
-	MqttBroker.socket_info = &MqttSocketId;
-	MqttBroker.Send = MqttSocketSend;
-	mqtt_connect(&MqttBroker);
+        mqtt_set_alive(&MqttBroker, MQTT_CLIENT_ALIVE_TIME);
+        MqttSocketConnect(MQTT_SERVER_ADDRESS, MQTT_SERVER_PORTNUM);
+        MqttBroker.socket_info = &MqttSocketId;
+        MqttBroker.Send = MqttSocketSend;
+        mqtt_connect(&MqttBroker);
 
-	while (1)
-	{
-	    S16 packet_length;
-	    const U8* packet_buffer = (U8*)MqttPacketBuffer;
+        while (1)
+        {
+            S16 packet_length;
+            const U8* packet_buffer = (U8*)MqttPacketBuffer;
 
-	    packet_length = MqttSocketReadPacket(MqttSocketId, (U8*)packet_buffer, sizeof(MqttPacketBuffer));
-	    DPRINTF("MqttSocketReadPacket PL:%d.\r\n", packet_length);
+            packet_length = MqttSocketReadPacket(MqttSocketId, (U8*)packet_buffer, sizeof(MqttPacketBuffer));
+            DPRINTF("MqttSocketReadPacket PL:%d.\r\n", packet_length);
 
-	    if(packet_length > 0)
-	    {
-	        MqttSocketRun(packet_buffer, packet_length);
-	    }
-	}
+            if(packet_length > 0)
+            {
+                MqttSocketRun(packet_buffer, packet_length);
+            }
+            else
+            {
+                MqttAliveTimerStop();
+                break;
+            }
+        }
+    }
 }
